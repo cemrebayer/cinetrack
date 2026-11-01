@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    function validUsername(name) {
+      return name is string && name.matches('^[a-z0-9_]{3,30}$');
+    }
+    function ownsUsernameAfter(name, userId) {
+      return getAfter(/databases/$(database)/documents/usernames/$(name)).data.uid == userId;
+    }
+
+    match /usernames/{username} {
+      // A single public handle lookup enables pre-signup availability checks.
+      allow get: if validUsername(username);
+      allow list: if false;
+      allow create: if isSignedIn()
+        && validUsername(username)
+        && request.resource.data.keys().hasAll(['uid'])
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username == username;
+      allow update: if false;
+      allow delete: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && (
+          !existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
+          || getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.username != username
+        );
+    }
+
+    match /users/{userId} {
+      function validProfile() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['username', 'displayName', 'createdAt'])
+          && d.keys().hasOnly(['username', 'displayName', 'createdAt'])
+          && validUsername(d.username)
+          && d.displayName is string
+          && d.displayName.size() >= 1
+          && d.displayName.size() <= 50
+          && d.createdAt is timestamp;
+      }
+      function oldUsernameReleased() {
+        return request.resource.data.username == resource.data.username
+          || !existsAfter(/databases/$(database)/documents/usernames/$(resource.data.username));
+      }
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validProfile()
+        && ownsUsernameAfter(request.resource.data.username, userId);
+      allow update: if isOwner(userId) && validProfile()
+        && request.resource.data.createdAt == resource.data.createdAt
+        && ownsUsernameAfter(request.resource.data.username, userId)
+        && oldUsernameReleased();
+      allow delete: if isOwner(userId)
+        && !existsAfter(/databases/$(database)/documents/usernames/$(resource.data.username));
+
+      match /watchLogs/{logId} {
+        function validLog() {
+          let d = request.resource.data;
+          return d.keys().hasAll([
+              'mediaType', 'tmdbId', 'title', 'runtimeMinutes',
+              'watchedAt', 'createdAt', 'isRewatch'
+            ])
+            && d.mediaType in ['movie', 'tv']
+            && d.tmdbId is int && d.tmdbId > 0
+            && d.title is string && d.title.size() > 0
+            && d.runtimeMinutes is int && d.runtimeMinutes > 0
+            && d.watchedAt is timestamp
+            && d.createdAt is timestamp
+            && d.isRewatch is bool
+            && (!('rating' in d) || (d.rating is int && d.rating >= 1 && d.rating <= 5))
+            && (!('review' in d) || (d.review is string && d.review.size() <= 500))
+            && (
+              d.mediaType == 'movie'
+              || (
+                d.keys().hasAll(['seasonNumber', 'episodeNumber'])
+                && d.seasonNumber is int && d.seasonNumber >= 0
+                && d.episodeNumber is int && d.episodeNumber >= 1
+              )
+            );
+        }
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId) && validLog();
+        allow update: if isOwner(userId) && validLog()
+          && request.resource.data.createdAt == resource.data.createdAt;
+      }
+    }
+  }
+}

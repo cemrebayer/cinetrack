@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "CineTrack & Avatar",
+    "slug": "cinetrack-avatar",
+    "scheme": "cinetrack",
+    "version": "1.0.0",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "./plugins/with-safe-ios-paths",
+      "./plugins/with-simulator-metro",
+      "expo-font"
+    ],
+    "web": {
+      "bundler": "metro"
+    },
+    "ios": {
+      "bundleIdentifier": "com.cinetrack.avatar"
+    },
+    "android": {
+      "package": "com.cinetrack.avatar"
+    }
+  }
+}
